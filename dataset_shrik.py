@@ -13,7 +13,7 @@ for file in os.listdir(directory):
     dataset = np.load(path)
 
     np.random.shuffle(dataset)
-    dataset_snippet = dataset[:1000]
+    dataset_snippet = dataset[:10000]
 
     target_path = './dataset/' + filename
     np.save(target_path, dataset_snippet)
