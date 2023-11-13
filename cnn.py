@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optmin
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 
 # Device  configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -26,11 +26,11 @@ print(len(file_list))
 
 # Define the QuickDraw dataset class
 class QuickDraw(Dataset):
-    def __init__(self, num_classes, file_list, directory_str, train, transform=None):
+    def __init__(self, num_classes, file_list, directory_str, transform=None):
         self.directory_str = directory_str
         self.num_classes = num_classes
         self.transform = transform
-        self.train = train
+
         # Get random index to load random files
         self.file_it = random.sample(range(0, len(file_list)), num_classes)
 
@@ -41,50 +41,28 @@ class QuickDraw(Dataset):
 
         self.label_list = custom_label_list
 
-        # Read data files and create an array
-        train_data_list = []
-        test_data_list = []
-        self.y_train = []
-        self.y_test = []
-
+        self.x = []
+        self.y = []
         cont = 0
+
         for data_file in custom_label_list:
             path = directory_str + data_file + '.npy'
             classes = np.load(path).astype(np.float32)
 
-            train_size = int(round(0.8*len(classes)))
-            test_size = int(round(0.2*len(classes)))
-
-            self.y_train += [cont]*train_size
-            self.y_test += [cont]*test_size
-
+            self.y += [cont]*len(classes)
             cont += 1
 
-            for i in range(train_size):
-                train_data_list.append(classes[i])
-            for i in range(test_size):
-                j = train_size+i
-                test_data_list.append(classes[j])
-        
-        self.train_data = np.array(train_data_list)
-        self.test_data = np.array(test_data_list)
-        self.y_train = np.array(self.y_train).reshape(-1, 1)
-        self.y_test = np.array(self.y_test).reshape(-1, 1)
-        
+            for i in range(len(classes)):
+                self.x.append(classes[i])
 
+        self.x = np.array(self.x)
+        self.y= np.array(self.y).reshape(-1, 1)
+        
     def __len__(self):
-        if self.train:
-            return len(self.train_data)
-        else:
-            return len(self.test_data)
-
+        return len(self.x)
 
     def __getitem__(self, idx):
-        if self.train:
-            sample = self.train_data[idx], self.y_train[idx]
-
-        else:
-            sample = self.test_data[idx], self.y_test[idx]
+        sample = self.x[idx], self.y[idx]
             
         if self.transform:
             sample = self.transform(sample)
@@ -126,25 +104,16 @@ class CNN_Net(nn.Module):
 
 # Hyper parameters
 
-num_classes=10
+num_classes = 10
 num_epochs = 100
 batch_size = 400
 learning_rate = 0.01
 
-train_data = QuickDraw(num_classes, file_list, directory_str, train=True, transform=ToTensor())
-test_data = QuickDraw(num_classes, file_list, directory_str, train=False, transform=ToTensor())
-train_loader = DataLoader(dataset=train_data, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(dataset=test_data, batch_size=batch_size, shuffle=True)
-
-# examples = iter(train_loader)
-# samples, labels = next(examples)
-
-#print(samples.shape)
-# for i in range(6):
-#     plt.subplot(2, 3, i+1)5
-#     plt.imshow(samples[i], cmap='gray')
-
-# plt.show()
+dataset = QuickDraw(num_classes, file_list, directory_str, transform=ToTensor())
+train_dataset, test_dataset = random_split(dataset, [0.8, 0.2], torch.Generator().manual_seed(42))
+print(len(train_dataset), len(test_dataset))
+train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
 
 model = CNN_Net()
 criterion = nn.CrossEntropyLoss()
@@ -172,6 +141,8 @@ with torch.no_grad():
     n_samples = 0
     n_class_correct = [0 for i in range(num_classes)]
     n_class_samples = [0 for i in range(num_classes)]
+
+    flag = 0
     for images, labels in test_loader:
         outputs = model(images)
         labels = labels.squeeze()
@@ -179,6 +150,17 @@ with torch.no_grad():
         n_samples += labels.size(0)
         evaluate = (predicted == labels).float()
         n_correct += evaluate.sum().item()
+
+        if flag == 0:
+            classes = dataset.get_label_list()
+            for i in range(6):
+                plt.subplot(2, 3, i+1)
+                plt.imshow(images[i].squeeze(), cmap='gray')
+                plt.title(classes[predicted[i]])
+                plt.axis("off")
+            
+            flag = 1
+            plt.show()
 
         for i in range(batch_size):
             label = labels[i]
@@ -190,6 +172,18 @@ with torch.no_grad():
     acc = 100 * n_correct / n_samples
     print(f'Accuracy = {acc} %')
 
+    classes = dataset.get_label_list()
     for i in range(10):
         acc = 100.0 * n_class_correct[i] / n_class_samples[i]
-        print(f'Accuracy of {classes[i]}: {acc} %')
+        print(f'Accuracy of {classes[i]}: {acc:.2f} %')
+
+    # examples = iter(test_loader)
+    # samples, labels = next(examples)
+
+    # for i in range(6):
+    #     plt.subplot(2, 3, i+1)5
+    #     plt.imshow(samples[i], cmap='gray')
+    #     plt.title(train_ds.class_names[labels[i]])
+    #     plt.axis("off")
+
+    # plt.show()
